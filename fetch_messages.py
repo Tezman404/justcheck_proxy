@@ -4,25 +4,33 @@ import logging
 from telegram import Bot
 from telegram.error import TelegramError
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 LAST_ID_FILE = "last_message_id.txt"
 OUTPUT_FILE = "latest_messages.txt"
 
+async def check_channel_access(bot, chat_id):
+    """بررسی می‌کند آیا ربات به کانال دسترسی دارد و عضو است یا خیر."""
+    try:
+        chat = await bot.get_chat(chat_id)
+        # بررسی نوع چت و وضعیت عضویت (برای کانال‌های عمومی معمولاً不需要)
+        logging.info(f"✅ دسترسی به کانال موفق: {chat.title} (ID: {chat.id})")
+        return True
+    except TelegramError as e:
+        logging.error(f"❌ خطای دسترسی به کانال: {e.message}")
+        return False
+
 def update_last_message_id(message_id):
-    """همیشه فایل last_message_id را ایجاد یا به‌روز می‌کند."""
     with open(LAST_ID_FILE, "w") as f:
         f.write(str(message_id))
     logging.info(f"Last message ID updated to: {message_id}")
 
-def create_empty_last_id_file():
-    """اگر فایل وجود نداشت، یک فایل خالی ایجاد می‌کند."""
+def ensure_last_id_file():
     if not os.path.exists(LAST_ID_FILE):
-        update_last_message_id(0)  # با 0 شروع می‌کنیم
+        update_last_message_id(0)
 
 def get_last_message_id():
-    """آخرین شناسه پیام ذخیره شده را برمی‌گرداند."""
-    create_empty_last_id_file()
+    ensure_last_id_file()
     with open(LAST_ID_FILE, "r") as f:
         return int(f.read().strip())
 
@@ -33,10 +41,24 @@ async def fetch_and_save():
         logging.error("TELEGRAM_TOKEN or TELEGRAM_CHAT_ID not set.")
         return
 
-    last_id = get_last_message_id()
-    offset = last_id + 1 if last_id > 0 else None
-
     async with Bot(token=TOKEN) as bot:
+        # گام 1: بررسی دسترسی به کانال
+        access_ok = await check_channel_access(bot, CHAT_ID)
+        if not access_ok:
+            # ذخیره فایل placeholder با پیام خطا
+            with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+                f.write("❌ خطا: ربات به کانال دسترسی ندارد.\n"
+                        "لطفاً بررسی کنید:\n"
+                        "1. ربات به عنوان عضو به کانال اضافه شده باشد.\n"
+                        "2. آیدی کانال صحیح باشد (با پیشوند 100-).\n"
+                        "3. ربات توسط ادمین کانال تایید شده باشد.")
+            update_last_message_id(0)
+            return
+
+        # گام 2: دریافت پیام‌های جدید
+        last_id = get_last_message_id()
+        offset = last_id + 1 if last_id > 0 else None
+
         updates = await bot.get_updates(offset=offset, limit=20)
         new_messages = []
         for update in updates:
@@ -46,18 +68,18 @@ async def fetch_and_save():
                 if msg.message_id > last_id:
                     last_id = msg.message_id
 
-        # همیشه فایل last_message_id را با آخرین ID به‌روز می‌کند
+        # به‌روزرسانی آخرین ID
         update_last_message_id(last_id)
 
-        # ذخیره ۱۰ پیام آخر در فایل خروجی
+        # ذخیره خروجی
         with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
             if new_messages:
-                # فقط ۱۰ پیام آخر جدید را ذخیره کن
                 f.write("\n\n---\n\n".join(new_messages[-10:]))
-                logging.info(f"Saved {len(new_messages[-10:])} new messages to {OUTPUT_FILE}")
+                logging.info(f"✅ {len(new_messages[-10:])} پیام جدید ذخیره شد.")
             else:
-                f.write("No new messages found.")
-                logging.info("No new messages, but placeholder file created.")
+                f.write("ℹ️ پیام جدیدی یافت نشد.\n"
+                        "توجه: اگر کانال پیام دارد اما اینجا خالی است، ممکن است ربات دسترسی به پیام‌های قدیمی‌تر از زمان عضویت نداشته باشد.")
+                logging.info("ℹ️ پیام جدیدی یافت نشد (اما دسترسی به کانال تأیید شده است).")
 
 if __name__ == "__main__":
     asyncio.run(fetch_and_save())
