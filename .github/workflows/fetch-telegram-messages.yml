@@ -1,13 +1,13 @@
-name: Fetch Telegram Channel Messages
+name: Fetch Last Messages from Multiple Channels
 
 on:
-  workflow_dispatch:   # فقط اجرای دستی – بدون زمانبندی
+  workflow_dispatch:    # فقط با فشردن دکمه "Run workflow" اجرا می‌شود
 
 jobs:
-  scrape-channel:
+  scrape:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -22,9 +22,9 @@ jobs:
       - name: Run scraper
         run: python fetch_messages.py
 
-      - name: Upload messages as artifact
+      - name: Upload ZIP artifact
         uses: actions/upload-artifact@v4
         with:
-          name: latest-messages
-          path: latest_messages.txt
-          retention-days: 1
+          name: messages-export
+          path: messages.zip
+          retention-days: 3
