@@ -1,6 +1,7 @@
 import os
 import re
 import zipfile
+import shutil
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
@@ -13,7 +14,6 @@ NUM_MESSAGES = 10
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Cache-Control": "no-cache, no-store, must-revalidate",
-    "Pragma": "no-cache"
 }
 
 def extract_username(channel_str):
@@ -28,11 +28,10 @@ def get_messages(username):
         if resp.status_code != 200:
             return [f"❌ خطا: HTTP {resp.status_code}"]
         soup = BeautifulSoup(resp.text, "html.parser")
-        # تمام بلوک‌های پیام
         message_blocks = soup.find_all("div", class_="tgme_widget_message")
         results = []
         for block in message_blocks[:NUM_MESSAGES]:
-            # --- استخراج زمان ---
+            # زمان
             time_tag = block.find("time")
             if time_tag and time_tag.has_attr("datetime"):
                 try:
@@ -43,27 +42,24 @@ def get_messages(username):
             else:
                 time_str = "زمان نامشخص"
 
-            # --- استخراج متن (در صورت وجود) ---
+            # متن یا رسانه
             text_div = block.find("div", class_="tgme_widget_message_text")
             if text_div:
                 text = text_div.get_text(strip=True)
             else:
-                # بررسی وجود رسانه (عکس، ویدیو، صوت، فایل)
-                media = block.find("a", class_="tgme_widget_message_photo_wrap") or \
-                        block.find("div", class_="tgme_widget_message_video") or \
-                        block.find("div", class_="tgme_widget_message_document")
+                media = (block.find("a", class_="tgme_widget_message_photo_wrap") or
+                         block.find("div", class_="tgme_widget_message_video") or
+                         block.find("div", class_="tgme_widget_message_document"))
                 if media:
-                    text = "[📷 Media: عکس یا ویدیو یا فایل]"
+                    text = "[📷 Media: عکس/ویدیو/فایل]"
                 else:
-                    text = "[⚠️ پیام بدون محتوای قابل نمایش]"
-
+                    text = "[⚠️ بدون متن قابل نمایش]"
             results.append(f"[{time_str}] {text}")
-        
         if not results:
-            return ["⚠️ هیچ پیامی یافت نشد (کانال خصوصی یا نامعتبر؟)"]
+            return ["⚠️ هیچ پیامی یافت نشد (ممکن است کانال خصوصی باشد)"]
         return results
     except Exception as e:
-        return [f"❌ خطا: {str(e)}"]
+        return [f"❌ خطا در دریافت: {str(e)}"]
 
 def save_channel_messages(username, messages):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -71,33 +67,32 @@ def save_channel_messages(username, messages):
     file_path = os.path.join(OUTPUT_DIR, f"{safe_name}.txt")
     with open(file_path, "w", encoding="utf-8") as f:
         f.write(f"📢 کانال: {username}\n")
-        f.write(f"📅 آخرین {len(messages)} پیام (جدیدترین در بالا):\n")
+        f.write(f"📅 آخرین {len(messages)} پیام:\n")
         f.write("="*50 + "\n\n")
         for i, msg in enumerate(messages, 1):
             f.write(f"{i}. {msg}\n\n")
     print(f"✅ ذخیره شد: {file_path}")
 
 def create_zip():
-    import shutil
-    if os.path.exists(OUTPUT_DIR):
-        shutil.rmtree(OUTPUT_DIR)
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    # دوباره فایل‌ها را پیدا کنید (قبلاً در save_channel_messages ساخته شده)
-    # اما در اینجا zip می‌سازیم
+    if not os.path.exists(OUTPUT_DIR) or not os.listdir(OUTPUT_DIR):
+        print("⚠️ پوشه خالی است، فایل ZIP ساخته نمی‌شود.")
+        return
     with zipfile.ZipFile(ZIP_NAME, 'w', zipfile.ZIP_DEFLATED) as zipf:
         for root, _, files in os.walk(OUTPUT_DIR):
             for file in files:
                 full_path = os.path.join(root, file)
                 arcname = os.path.relpath(full_path, start=os.path.dirname(OUTPUT_DIR))
                 zipf.write(full_path, arcname)
-    print(f"📦 فایل ZIP: {ZIP_NAME}")
+    print(f"📦 فایل ZIP: {ZIP_NAME} (حجم: {os.path.getsize(ZIP_NAME)} بایت)")
 
 def main():
     if not os.path.exists(INPUT_FILE):
         print(f"❌ فایل {INPUT_FILE} یافت نشد")
         return
+
     with open(INPUT_FILE, "r", encoding="utf-8") as f:
         lines = f.readlines()
+
     channels = []
     for line in lines:
         uname = extract_username(line)
@@ -105,20 +100,25 @@ def main():
             channels.append(uname)
         else:
             print(f"⚠️ خط نادیده گرفته: {line.strip()}")
+
     if not channels:
-        print("❌ هیچ کانال معتبری نیست")
+        print("❌ هیچ کانال معتبری یافت نشد")
         return
-    print(f"🔍 {len(channels)} کانال: {', '.join(channels)}")
-    # حذف پوشه قبلی
+
+    print(f"🔍 تعداد کانال‌ها: {len(channels)} -> {', '.join(channels)}")
+
+    # پاک کردن پوشه قبلی (قبل از ذخیره فایل‌های جدید)
     if os.path.exists(OUTPUT_DIR):
-        import shutil
         shutil.rmtree(OUTPUT_DIR)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
     for username in channels:
-        print(f"\n🔄 در حال گرفتن پیام‌های {username} ...")
+        print(f"\n🔄 در حال پردازش: {username}")
         msgs = get_messages(username)
         save_channel_messages(username, msgs)
+
     create_zip()
-    print("\n✅ تمام شد. فایل messages.zip آماده دانلود از بخش Artifacts است.")
+    print("\n✅ انجام شد. فایل messages.zip را از Artifacts دانلود کنید.")
 
 if __name__ == "__main__":
     main()
