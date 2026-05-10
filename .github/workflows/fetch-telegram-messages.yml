@@ -1,9 +1,7 @@
 name: Fetch Telegram Channel Messages
 
 on:
-  schedule:
-    - cron: '*/30 * * * *'   # هر 30 دقیقه یکبار اجرا شود
-  workflow_dispatch:          # قابلیت اجرای دستی در صورتی که نیاز باشد
+  workflow_dispatch:   # فقط اجرای دستی – بدون زمانبندی
 
 jobs:
   scrape-channel:
