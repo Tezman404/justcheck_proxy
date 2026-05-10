@@ -2,8 +2,8 @@ name: Fetch Telegram Channel Messages
 
 on:
   schedule:
-    - cron: '*/30 * * * *'  # هر ۳۰ دقیقه یکبار اجرا شود
-  workflow_dispatch:       # امکان اجرای دستی
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
 
 jobs:
   fetch-messages:
@@ -18,26 +18,22 @@ jobs:
           python-version: '3.10'
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install python-telegram-bot
+        run: pip install python-telegram-bot
 
-      - name: Fetch new messages and output last 10
+      - name: Fetch and save messages
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python fetch_messages.py
 
-      - name: Upload last message ID as artifact
+      - name: Upload last message ID
         uses: actions/upload-artifact@v4
         with:
           name: last-message-id
           path: last_message_id.txt
-          retention-days: 1
 
-      - name: Download last message ID from previous run
-        uses: actions/download-artifact@v4
+      - name: Upload latest messages
+        uses: actions/upload-artifact@v4
         with:
-          name: last-message-id
-          path: .
-        continue-on-error: true
+          name: latest-messages
+          path: latest_messages.txt
