@@ -1,23 +1,24 @@
-name: Fetch Last Messages from Multiple Channels
+name: Fetch Latest Channel Messages
 
 on:
-  workflow_dispatch:    # فقط با فشردن دکمه "Run workflow" اجرا می‌شود
+  workflow_dispatch:
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v3
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
       - name: Install dependencies
         run: |
-          pip install requests beautifulsoup4
+          pip install requests beautifulsoup4 playwright
+          playwright install --with-deps chromium
 
       - name: Run scraper
         run: python fetch_messages.py
