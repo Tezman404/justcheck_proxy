@@ -2,11 +2,11 @@ name: Fetch Telegram Channel Messages
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
-  workflow_dispatch:
+    - cron: '*/30 * * * *'   # هر 30 دقیقه یکبار اجرا شود
+  workflow_dispatch:          # قابلیت اجرای دستی در صورتی که نیاز باشد
 
 jobs:
-  fetch-messages:
+  scrape-channel:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -18,22 +18,15 @@ jobs:
           python-version: '3.10'
 
       - name: Install dependencies
-        run: pip install python-telegram-bot
+        run: |
+          pip install requests beautifulsoup4
 
-      - name: Fetch and save messages
-        env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      - name: Run scraper
         run: python fetch_messages.py
 
-      - name: Upload last message ID
-        uses: actions/upload-artifact@v4
-        with:
-          name: last-message-id
-          path: last_message_id.txt
-
-      - name: Upload latest messages
+      - name: Upload messages as artifact
         uses: actions/upload-artifact@v4
         with:
           name: latest-messages
           path: latest_messages.txt
+          retention-days: 1
