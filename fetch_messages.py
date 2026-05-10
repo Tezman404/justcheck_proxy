@@ -2,24 +2,31 @@ import os
 import asyncio
 import logging
 from telegram import Bot
-from telegram.error import TelegramError, RetryAfter
+from telegram.error import TelegramError
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO)
 
-def get_last_message_id(filename="last_message_id.txt"):
-    if os.path.exists(filename):
-        with open(filename, "r") as f:
-            try:
-                return int(f.read().strip())
-            except:
-                return None
-    return None
+LAST_ID_FILE = "last_message_id.txt"
+OUTPUT_FILE = "latest_messages.txt"
 
-def save_last_message_id(message_id, filename="last_message_id.txt"):
-    with open(filename, "w") as f:
+def update_last_message_id(message_id):
+    """همیشه فایل last_message_id را ایجاد یا به‌روز می‌کند."""
+    with open(LAST_ID_FILE, "w") as f:
         f.write(str(message_id))
+    logging.info(f"Last message ID updated to: {message_id}")
 
-async def fetch_new_messages():
+def create_empty_last_id_file():
+    """اگر فایل وجود نداشت، یک فایل خالی ایجاد می‌کند."""
+    if not os.path.exists(LAST_ID_FILE):
+        update_last_message_id(0)  # با 0 شروع می‌کنیم
+
+def get_last_message_id():
+    """آخرین شناسه پیام ذخیره شده را برمی‌گرداند."""
+    create_empty_last_id_file()
+    with open(LAST_ID_FILE, "r") as f:
+        return int(f.read().strip())
+
+async def fetch_and_save():
     TOKEN = os.environ.get("TELEGRAM_TOKEN")
     CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
     if not TOKEN or not CHAT_ID:
@@ -27,50 +34,30 @@ async def fetch_new_messages():
         return
 
     last_id = get_last_message_id()
-    logging.info(f"Last processed message ID: {last_id}")
-    
-    # offset باید برابر last_id + 1 باشد تا پیام تکراری دریافت نشود
-    offset = last_id + 1 if last_id is not None else None
+    offset = last_id + 1 if last_id > 0 else None
 
-    try:
-        # استفاده از async with برای مدیریت خودکار بستن اتصال بدون خطای flood
-        async with Bot(token=TOKEN) as bot:
-            updates = await bot.get_updates(offset=offset, limit=20, timeout=10)
-            
-            if not updates:
-                logging.info("No new messages.")
-                return
+    async with Bot(token=TOKEN) as bot:
+        updates = await bot.get_updates(offset=offset, limit=20)
+        new_messages = []
+        for update in updates:
+            if update.message and str(update.message.chat_id) == CHAT_ID:
+                msg = update.message
+                new_messages.append(f"ID: {msg.message_id}\nText: {msg.text or '[Non-text]'}")
+                if msg.message_id > last_id:
+                    last_id = msg.message_id
 
-            new_messages = []
-            for update in updates:
-                if update.message and str(update.message.chat_id) == str(CHAT_ID):
-                    msg = update.message
-                    new_messages.append(f"ID: {msg.message_id}\nText: {msg.text or '[Media or Non-Text Message]'}")
-                    if last_id is None or msg.message_id > last_id:
-                        last_id = msg.message_id
+        # همیشه فایل last_message_id را با آخرین ID به‌روز می‌کند
+        update_last_message_id(last_id)
 
-            # نمایش ۱۰ پیام آخر جدید
-            n_messages = 10
-            latest_to_show = new_messages[-n_messages:] if new_messages else []
-            
-            print("\n" + "="*50)
-            print(f"Latest {len(latest_to_show)} Message(s):")
-            print("="*50 + "\n")
-            
-            if not latest_to_show:
-                print("No new messages to display.\n")
+        # ذخیره ۱۰ پیام آخر در فایل خروجی
+        with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+            if new_messages:
+                # فقط ۱۰ پیام آخر جدید را ذخیره کن
+                f.write("\n\n---\n\n".join(new_messages[-10:]))
+                logging.info(f"Saved {len(new_messages[-10:])} new messages to {OUTPUT_FILE}")
             else:
-                for msg in latest_to_show:
-                    print(f"{msg}\n{'-'*30}")
-
-            if last_id is not None:
-                save_last_message_id(last_id)
-
-    except TelegramError as e:
-        logging.error(f"Telegram API error: {e}")
-        # اگر خطای RetryAfter باشد، فقط لاگ می‌کنیم و ادامه می‌دهیم
-        if isinstance(e, RetryAfter):
-            logging.warning(f"Flood control: retry after {e.retry_after} seconds")
+                f.write("No new messages found.")
+                logging.info("No new messages, but placeholder file created.")
 
 if __name__ == "__main__":
-    asyncio.run(fetch_new_messages())
+    asyncio.run(fetch_and_save())
